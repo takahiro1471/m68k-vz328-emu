@@ -1,0 +1,8 @@
+                         4 .list
+                         5 	.section .data
+                         6 msg:
+000000 655B 346D         7 	.asciz "\e[4m\e[6mPress Any Key to Start\e[0m\r\n"
+       655B 366D         7 
+       5072 6573         7 
+       7320 416E         7 
+       7920 4B65         7 

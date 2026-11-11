@@ -1,0 +1,6 @@
+/build/
+/m68k-vz328
+/tests/*.abs
+/tests/*.LIS
+/tests/*.map
+/tests/*.o

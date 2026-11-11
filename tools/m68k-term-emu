@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# m68k-term-emu - start the MC68VZ328 emulator and connect m68k-term/kermit
+#
+# This is a drop-in replacement for m68k-termUSB0 for the emulator.  It
+# creates a pseudo terminal for UART1, rewrites the installed kermit setup
+# script to use that PTY, and starts kermit.  With no options the emulator
+# boots into its IPL loader; upload a program from kermit with
+#
+#     C-\ c
+#     kermit@...> transmit program.abs
+#     kermit@...> c
+#
+# and press a key when "hit any key" appears.
+#
+# Examples:
+#     tools/m68k-term-emu
+#     tools/m68k-term-emu --load tests/uart_poll.abs
+#     tools/m68k-term-emu --load tests/uart_irq.abs --fast
+#
+set -u
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+EMULATOR=${M68K_VZ328:-"$ROOT/m68k-vz328"}
+TEMPLATE=${M68K_TERM_TEMPLATE:-/usr/local/bin/m68k-termUSB0}
+SPEED=230400
+EMU_ARGS=()
+WANT_LOAD=0
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [wrapper options] [emulator options]
+
+Wrapper options:
+  --emu PATH        Emulator binary (default: $EMULATOR)
+  --template PATH   Kermit setup script to adapt
+                    (default: $TEMPLATE)
+  --speed N         Speed shown by kermit (default: $SPEED)
+  -h, --help        Show this help
+
+All other options are passed to the emulator.  The emulator is started with
+--pty-link, and --wait-key is added automatically when --load is used.
+With no emulator options the emulator starts in IPL mode, ready for a
+"transmit file.abs" upload.
+
+Environment:
+  M68K_VZ328          Emulator binary
+  M68K_TERM_TEMPLATE  Kermit setup script template
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --emu)
+            [ $# -ge 2 ] || { echo "--emu needs an argument" >&2; exit 2; }
+            EMULATOR=$2
+            shift 2
+            ;;
+        --template)
+            [ $# -ge 2 ] || { echo "--template needs an argument" >&2; exit 2; }
+            TEMPLATE=$2
+            shift 2
+            ;;
+        --speed)
+            [ $# -ge 2 ] || { echo "--speed needs an argument" >&2; exit 2; }
+            SPEED=$2
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            EMU_ARGS+=("$1")
+            case "$1" in
+                -l|--load|--load=*) WANT_LOAD=1 ;;
+            esac
+            shift
+            ;;
+    esac
+done
+
+if [ ! -x "$EMULATOR" ]; then
+    if command -v m68k-vz328 >/dev/null 2>&1; then
+        EMULATOR=$(command -v m68k-vz328)
+    else
+        echo "$(basename "$0"): emulator not found: $EMULATOR" >&2
+        echo "Build it with 'make' or set M68K_VZ328." >&2
+        exit 1
+    fi
+fi
+
+if ! command -v kermit >/dev/null 2>&1; then
+    echo "$(basename "$0"): kermit not found" >&2
+    exit 1
+fi
+
+# Do not add --wait-key when the user is starting in IPL mode; the IPL loader
+# already waits for a key after receiving an S-record file.
+if [ "$WANT_LOAD" -eq 1 ]; then
+    has_wait=0
+    for arg in "${EMU_ARGS[@]}"; do
+        [ "$arg" = "--wait-key" ] && has_wait=1
+    done
+    has_ipl=0
+    for arg in "${EMU_ARGS[@]}"; do
+        case "$arg" in -i|--ipl) has_ipl=1 ;; esac
+    done
+    if [ "$has_wait" -eq 0 ] && [ "$has_ipl" -eq 0 ]; then
+        EMU_ARGS+=(--wait-key)
+    fi
+fi
+
+TMPDIR_KERMIT=$(mktemp -d "${TMPDIR:-/tmp}/m68k-term-emu.XXXXXX") || exit 1
+PTY_LINK="$TMPDIR_KERMIT/tty"
+KERMIT_SCRIPT="$TMPDIR_KERMIT/m68k-term.ksc"
+EMU_LOG="$TMPDIR_KERMIT/emulator.log"
+EMU_PID=
+
+cleanup() {
+    if [ -n "$EMU_PID" ] && kill -0 "$EMU_PID" 2>/dev/null; then
+        kill "$EMU_PID" 2>/dev/null || true
+        wait "$EMU_PID" 2>/dev/null || true
+    fi
+    rm -rf "$TMPDIR_KERMIT"
+}
+trap cleanup EXIT INT TERM HUP
+
+"$EMULATOR" --pty-link "$PTY_LINK" "${EMU_ARGS[@]}" \
+    </dev/null >/dev/null 2>"$EMU_LOG" &
+EMU_PID=$!
+
+# Wait for the symlink the emulator creates after opening the PTY.
+i=0
+while [ ! -e "$PTY_LINK" ]; do
+    if ! kill -0 "$EMU_PID" 2>/dev/null; then
+        echo "$(basename "$0"): emulator failed to start" >&2
+        cat "$EMU_LOG" >&2
+        exit 1
+    fi
+    i=$((i + 1))
+    if [ "$i" -ge 500 ]; then
+        echo "$(basename "$0"): timed out waiting for PTY" >&2
+        exit 1
+    fi
+    sleep 0.01
+done
+
+# Adapt the distribution's kermit setup script to the emulated PTY.
+if [ -r "$TEMPLATE" ]; then
+    sed -e "s|^[[:space:]]*set[[:space:]]\+line[[:space:]].*|set line $PTY_LINK|" \
+        -e "s|^[[:space:]]*set[[:space:]]\+speed[[:space:]].*|set speed $SPEED|" \
+        "$TEMPLATE" >"$KERMIT_SCRIPT"
+else
+    cat >"$KERMIT_SCRIPT" <<EOF
+set line $PTY_LINK
+set carrier-watch off
+set speed $SPEED
+set parity none
+set stop-bits 1
+set terminal bytesize 8
+set flow-control none
+set receive packet-length 1024
+set send packet-length 1024
+set block-check 3
+set window 4
+set file type binary
+set file names literal
+set transmit echo on
+set transmit timeout 0
+set transmit prompt 0
+set transmit eof \\0
+set transmit linefeed off
+connect
+EOF
+fi
+
+echo "MC68VZ328 emulator on $PTY_LINK" >&2
+echo "Inside kermit: C-\\ c to leave connect mode, 'transmit FILE' to upload, 'c' to reconnect." >&2
+
+rc=0
+kermit "$KERMIT_SCRIPT" || rc=$?
+
+# If the guest requested exit before kermit quit, show the emulator log.
+if ! kill -0 "$EMU_PID" 2>/dev/null; then
+    wait "$EMU_PID" 2>/dev/null || true
+    EMU_PID=
+fi
+if [ -s "$EMU_LOG" ]; then
+    cat "$EMU_LOG" >&2
+fi
+
+exit "$rc"

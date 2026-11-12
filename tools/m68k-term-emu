@@ -19,7 +19,7 @@
 #
 set -u
 
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ROOT="$(cd "$(dirname "$(realpath "$0")")/.." && pwd)"
 EMULATOR=${M68K_VZ328:-"$ROOT/m68k-vz328"}
 TEMPLATE=${M68K_TERM_TEMPLATE:-/usr/local/bin/m68k-termUSB0}
 SPEED=230400

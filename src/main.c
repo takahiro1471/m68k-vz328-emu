@@ -647,8 +647,39 @@ done:
             fprintf(stderr, "Program requested exit (0x600D) at PC=%06" PRIX32
                     "\n", vz_cpu_get_pc());
         } else {
-            fprintf(stderr, "Unhandled exception or abort (0xDEAD) at PC=%06"
-                    PRIX32 "\n", vz_cpu_get_pc());
+            vz_cpu_exception_info_t info;
+
+            fprintf(stderr, "Unhandled exception (0xDEAD)");
+            if (vz_cpu_get_exception_info(&info)) {
+                static const char *const exception_names[] = {
+                    [2] = "Bus error",
+                    [3] = "Address error",
+                    [4] = "Illegal instruction",
+                    [5] = "Divide by zero",
+                    [6] = "CHK",
+                    [7] = "TRAPV",
+                    [8] = "Privilege violation",
+                    [9] = "Trace",
+                    [10] = "Line-A emulator",
+                    [11] = "Line-F emulator"
+                };
+                const char *name = info.vector < 12 ?
+                    exception_names[info.vector] : NULL;
+
+                fprintf(stderr, ": %s (vector %u)",
+                        name ? name : "CPU exception", info.vector);
+                fprintf(stderr, "\n  PC=%06" PRIX32 " SR=%04" PRIX16,
+                        info.pc, info.sr);
+                if (info.has_opcode)
+                    fprintf(stderr, " opcode=%04" PRIX16, info.opcode);
+                fputc('\n', stderr);
+                if (info.has_access_address)
+                    fprintf(stderr, "  Access address=%06" PRIX32 "\n",
+                            info.access_address);
+            } else {
+                fprintf(stderr, ": no exception frame (software abort) at "
+                        "PC=%06" PRIX32 "\n", vz_cpu_get_pc());
+            }
             rc = 2;
         }
     } else if (stop_requested) {

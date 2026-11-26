@@ -111,6 +111,76 @@ uint32_t vz_cpu_get_pc(void)
     return m68k_get_reg(NULL, M68K_REG_PC) & VZ_ADDR_MASK;
 }
 
+static uint16_t read_word(uint32_t address)
+{
+    return (uint16_t)((g_machine->mem[address & VZ_ADDR_MASK] << 8) |
+                      g_machine->mem[(address + 1) & VZ_ADDR_MASK]);
+}
+
+static uint32_t read_long(uint32_t address)
+{
+    return ((uint32_t)read_word(address) << 16) | read_word(address + 2);
+}
+
+bool vz_cpu_get_exception_info(vz_cpu_exception_info_t *info)
+{
+    uint32_t sp;
+    uint32_t opcode_pc = 0;
+
+    if (!g_machine || !info || g_machine->exception_vector == UINT16_MAX)
+        return false;
+
+    info->vector = g_machine->exception_vector;
+    info->has_opcode = false;
+    info->has_access_address = false;
+    sp = m68k_get_reg(NULL, M68K_REG_SP) & VZ_ADDR_MASK;
+
+    if (info->vector == 3) {
+        info->access_address = read_long(sp + 2) & VZ_ADDR_MASK;
+        info->opcode = read_word(sp + 6);
+        info->sr = read_word(sp + 8);
+        info->pc = read_long(sp + 10) & VZ_ADDR_MASK;
+        info->has_opcode = true;
+        info->has_access_address = true;
+        return true;
+    }
+
+    info->sr = read_word(sp);
+    info->pc = read_long(sp + 2) & VZ_ADDR_MASK;
+
+    switch (info->vector) {
+    case 4:  /* Illegal instruction; frame PC points at the opcode. */
+    case 8:  /* Privilege violation. */
+    case 10: /* Line-A emulator. */
+    case 11: /* Line-F emulator. */
+        opcode_pc = info->pc;
+        info->has_opcode = true;
+        break;
+    case 5:  /* Divide by zero. */
+    case 6:  /* CHK. */
+    case 7:  /* TRAPV. */
+    case 9:  /* Trace. */
+        opcode_pc = (info->pc - 2) & VZ_ADDR_MASK;
+        info->has_opcode = true;
+        break;
+    default:
+        if (info->vector >= 32 && info->vector <= 47) {
+            opcode_pc = (info->pc - 2) & VZ_ADDR_MASK;
+            info->has_opcode = true;
+        }
+        break;
+    }
+
+    if (info->has_opcode) {
+        info->opcode = read_word(opcode_pc);
+        if (info->vector == 5 || info->vector == 6 ||
+            info->vector == 7 || info->vector == 9 ||
+            (info->vector >= 32 && info->vector <= 47))
+            info->pc = opcode_pc;
+    }
+    return true;
+}
+
 void vz_cpu_dump(FILE *out)
 {
     int i;

@@ -27,6 +27,7 @@
 #define VZ_DEFAULT_SSP     0x0003fff0u
 #define VZ_DEFAULT_PC      0x00000400u
 #define VZ_MAGIC_ADDRESS   0x00fff7feu
+#define VZ_EXCEPTION_VECTOR_ADDRESS 0x00fff7fcu
 #define VZ_MAGIC_EXCEPTION 0xdead
 #define VZ_MAGIC_EXIT      0x600d
 
@@ -56,6 +57,7 @@ typedef struct vz328 {
     bool cpu_initialized;
     bool halted;
     uint16_t halt_code;
+    uint16_t exception_vector;
 
     bool trace_io;
     bool trace_irq;

@@ -115,11 +115,29 @@ fi
 rc=0
 ./m68k-vz328 --load tests/exception.abs --fast </dev/null \
     >"$TMP/exception.out" 2>"$TMP/exception.err" || rc=$?
-if [ "$rc" -eq 2 ] && contains "$TMP/exception.err" "Unhandled exception"; then
+if [ "$rc" -eq 2 ] &&
+    contains "$TMP/exception.err" "Illegal instruction (vector 4)" &&
+    contains "$TMP/exception.err" "PC=" &&
+    contains "$TMP/exception.err" "opcode=4AFC"; then
     pass exception
 else
     fail exception "expected exit status 2 and an unhandled exception report"
     show_file "$TMP/exception.err"
+fi
+
+rc=0
+./m68k-vz328 --load tests/address_error.abs --fast </dev/null \
+    >"$TMP/address-error.out" 2>"$TMP/address-error.err" || rc=$?
+if [ "$rc" -eq 2 ] &&
+   contains "$TMP/address-error.err" "Address error (vector 3)" &&
+    contains "$TMP/address-error.err" "PC=00040E" &&
+    contains "$TMP/address-error.err" "SR=2700" &&
+    contains "$TMP/address-error.err" "opcode=3038" &&
+    contains "$TMP/address-error.err" "Access address=000501"; then
+    pass address_error
+else
+    fail address_error "expected address-error vector and fault address"
+    show_file "$TMP/address-error.err"
 fi
 
 echo "== IPL S-record loader =="

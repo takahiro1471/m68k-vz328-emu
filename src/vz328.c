@@ -271,6 +271,8 @@ static void reg_write16(vz328_t *m, uint32_t r, uint32_t value, double now)
         timer_write_word(m, r, v, 2, now);
     } else if (r >= REG_UART1 && r < REG_UART2 + 0x0c) {
         uart_write_word(m, r, v, 2, now);
+    } else if (r == VZ_EXCEPTION_VECTOR_ADDRESS - VZ_REG_BASE) {
+        m->exception_vector = v;
     } else if (r == VZ_MAGIC_ADDRESS - VZ_REG_BASE) {
         if (v == VZ_MAGIC_EXCEPTION || v == VZ_MAGIC_EXIT)
             request_halt(m, v);
@@ -712,10 +714,32 @@ static void install_vectors(vz328_t *m)
 
     for (i = 0; i < 256; i++) {
         uint32_t a = (uint32_t)i * 4;
+        uint32_t handler = VZ_STUB_ADDRESS + 0x20 + (uint32_t)i * 16;
         m->mem[a] = (uint8_t)(VZ_STUB_ADDRESS >> 24);
         m->mem[a + 1] = (uint8_t)(VZ_STUB_ADDRESS >> 16);
         m->mem[a + 2] = (uint8_t)(VZ_STUB_ADDRESS >> 8);
         m->mem[a + 3] = (uint8_t)VZ_STUB_ADDRESS;
+
+        if (i >= 2) {
+            static const uint8_t handler_prefix[] = {
+                0x33, 0xfc, 0x00, 0x00, 0x00, 0xff, 0xf7, 0xfc,
+                0x4e, 0xf9
+            };
+            uint8_t *code = m->mem + handler;
+
+            memcpy(code, handler_prefix, sizeof(handler_prefix));
+            code[2] = (uint8_t)(i >> 8);
+            code[3] = (uint8_t)i;
+            code[10] = (uint8_t)(VZ_STUB_ADDRESS >> 24);
+            code[11] = (uint8_t)(VZ_STUB_ADDRESS >> 16);
+            code[12] = (uint8_t)(VZ_STUB_ADDRESS >> 8);
+            code[13] = (uint8_t)VZ_STUB_ADDRESS;
+
+            m->mem[a] = (uint8_t)(handler >> 24);
+            m->mem[a + 1] = (uint8_t)(handler >> 16);
+            m->mem[a + 2] = (uint8_t)(handler >> 8);
+            m->mem[a + 3] = (uint8_t)handler;
+        }
     }
 
     m->mem[4 * 0 + 0] = 0;
@@ -741,6 +765,7 @@ void vz328_reset_devices(vz328_t *m)
     m->irq_level = 0;
     m->halted = false;
     m->halt_code = 0;
+    m->exception_vector = UINT16_MAX;
 
     uart_reset(&m->uart[0], now);
     uart_reset(&m->uart[1], now);

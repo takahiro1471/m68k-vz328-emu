@@ -38,7 +38,8 @@ Wrapper options:
   -h, --help        Show this help
 
 All other options are passed to the emulator.  The emulator is started with
---pty-link, and --wait-key is added automatically when --load is used.
+--pty-link, and --wait-key plus --start-at-400 are added automatically when
+--load is used.
 With no emulator options the emulator starts in IPL mode, ready for a
 "transmit file.abs" upload.
 
@@ -101,13 +102,17 @@ fi
 # Do not add --wait-key when the user is starting in IPL mode; the IPL loader
 # already waits for a key after receiving an S-record file.
 if [ "$WANT_LOAD" -eq 1 ]; then
-    has_wait=0
-    for arg in "${EMU_ARGS[@]}"; do
-        [ "$arg" = "--wait-key" ] && has_wait=1
-    done
     has_ipl=0
     for arg in "${EMU_ARGS[@]}"; do
         case "$arg" in -i|--ipl) has_ipl=1 ;; esac
+    done
+    if [ "$has_ipl" -eq 0 ]; then
+        EMU_ARGS+=(--start-at-400)
+    fi
+
+    has_wait=0
+    for arg in "${EMU_ARGS[@]}"; do
+        [ "$arg" = "--wait-key" ] && has_wait=1
     done
     if [ "$has_wait" -eq 0 ] && [ "$has_ipl" -eq 0 ]; then
         EMU_ARGS+=(--wait-key)

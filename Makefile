@@ -88,6 +88,7 @@ TEST_ABS = \
 	tests/timer2_irq.abs \
 	tests/exception.abs \
 	tests/address_error.abs \
+	tests/entry_override.abs \
 	tests/ipl_hello.abs
 
 test: all $(TEST_ABS)

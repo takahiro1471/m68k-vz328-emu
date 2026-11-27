@@ -95,6 +95,30 @@ direct_load uart_irq_min tests/uart_irq_min.abs "Minimal UART IRQ OK!" "abc"
 direct_load timer_irq tests/timer_irq.abs "Timer 1 interrupt OK!"
 direct_load timer2_irq tests/timer2_irq.abs "Timer 2 interrupt OK!"
 
+rc=0
+./m68k-vz328 --load tests/entry_override.abs --fast </dev/null \
+    >"$TMP/entry-default.out" 2>"$TMP/entry-default.err" || rc=$?
+if [ "$rc" -eq 2 ] &&
+   contains "$TMP/entry-default.err" "Illegal instruction (vector 4)" &&
+   contains "$TMP/entry-default.err" "PC=00043C"; then
+    pass srec_entry_default
+else
+    fail srec_entry_default "expected the S-record entry 0x43C to be used"
+    show_file "$TMP/entry-default.err"
+fi
+
+rc=0
+./m68k-vz328 --load tests/entry_override.abs --start-at-400 --fast \
+    </dev/null >"$TMP/entry-400.out" 2>"$TMP/entry-400.err" || rc=$?
+if [ "$rc" -eq 0 ] &&
+   contains "$TMP/entry-400.err" "start 00000400" &&
+   contains "$TMP/entry-400.err" "Program requested exit (0x600D)"; then
+    pass start_at_400
+else
+    fail start_at_400 "expected the override to execute from 0x400"
+    show_file "$TMP/entry-400.err"
+fi
+
 # UART1 receive interrupt echo test: the echoed characters must appear as
 # well as the final message.
 if printf 'abq' | ./m68k-vz328 --load tests/uart_irq.abs --fast \

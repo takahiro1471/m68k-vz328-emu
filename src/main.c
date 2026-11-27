@@ -32,6 +32,7 @@ typedef struct options {
     const char *load_file;
     bool force_ipl;
     bool wait_key;
+    bool start_at_400;
     bool fast;
     bool dump;
     bool show_led;
@@ -69,6 +70,7 @@ static void usage(FILE *out)
 "  -l, --load FILE        Load an m68k-as .abs S-record file and run it\n"
 "  -i, --ipl              Start in IPL mode and wait for S-records on UART1\n"
 "      --wait-key         Wait for a key before starting a loaded program\n"
+"      --start-at-400     Start loaded program at 0x00000400\n"
 "\n"
 "UART1 connection (default: PTY in IPL mode, stdio with --load):\n"
 "  -p, --pty              Create a pseudo terminal for UART1\n"
@@ -332,6 +334,7 @@ int main(int argc, char **argv)
         {"max-cycles",  required_argument, NULL, 1006},
         {"run-time",    required_argument, NULL, 1007},
         {"wait-key",    no_argument,       NULL, 1008},
+        {"start-at-400", no_argument,      NULL, 1015},
         {"buttons",     required_argument, NULL, 1009},
         {"switches",    required_argument, NULL, 1010},
         {"led",         no_argument,       NULL, 1011},
@@ -407,6 +410,9 @@ int main(int argc, char **argv)
         case 1008:
             opt.wait_key = true;
             break;
+        case 1015:
+            opt.start_at_400 = true;
+            break;
         case 1009:
             if (!parse_u32(optarg, &v) || (v & ~0x0fu) != 0) {
                 fprintf(stderr, "invalid --buttons mask: %s\n", optarg);
@@ -452,6 +458,10 @@ int main(int argc, char **argv)
     }
     if (opt.force_ipl && opt.load_file) {
         fprintf(stderr, "--ipl and --load cannot be used together\n");
+        return 1;
+    }
+    if (opt.start_at_400 && !opt.load_file) {
+        fprintf(stderr, "--start-at-400 requires --load\n");
         return 1;
     }
 
@@ -508,17 +518,20 @@ int main(int argc, char **argv)
 
     if (opt.load_file) {
         srec_info_t info;
+        uint32_t start_address;
 
         if (vz328_load_abs(&m, opt.load_file, &info, err, sizeof(err)) < 0) {
             fprintf(stderr, "load failed: %s\n", err);
             rc = 1;
             goto done;
         }
+        start_address = opt.start_at_400 ? VZ_DEFAULT_PC :
+                        (info.have_start ? info.start_address :
+                         VZ_DEFAULT_PC);
         fprintf(stderr, "Loaded %s: %" PRIu32 " records, %08" PRIX32
                 "-%08" PRIX32 ", start %08" PRIX32 "\n",
                 opt.load_file, info.data_records, info.min_address,
-                info.max_address,
-                info.have_start ? info.start_address : VZ_DEFAULT_PC);
+                info.max_address, start_address);
 
         if (opt.wait_key) {
             if (!wait_for_key(uart1_open ? &uart1_port : NULL, uart1_open)) {
@@ -526,8 +539,7 @@ int main(int argc, char **argv)
                 goto done;
             }
         }
-        vz328_start_program(&m, info.have_start ? info.start_address :
-                            VZ_DEFAULT_PC, VZ_DEFAULT_SSP);
+        vz328_start_program(&m, start_address, VZ_DEFAULT_SSP);
     } else {
         vz328_ipl_begin(&m);
     }

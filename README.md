@@ -103,6 +103,8 @@ tools/m68k-term-emu --load tests/uart_poll.abs
 ```
 
 この場合は `--wait-key` が自動的に付加され、kermit 接続後にキーを押すと実行が始まります。
+また `--load` 時は実機の起動方法に合わせ、S-record の開始番地にかかわらず `0x400` から実行します。
+エミュレータ本体を直接 `--load` した場合は、従来どおりS-recordの開始番地を使います。
 
 ラッパーを使わずに PTY を自分で接続する場合:
 
@@ -132,6 +134,7 @@ S レコードは行単位で受け取ります。Kermitの`transmit`は設定�
 -l, --load FILE        .abs (S レコード) を読み込んで実行
 -i, --ipl              IPL モードで起動 (UART1 から S レコードを待つ)
     --wait-key         --load 実行前にキー入力を待つ
+    --start-at-400     --load 時に S-record の開始番地を無視して 0x400 から実行
 
 -p, --pty              UART1 に PTY を作る
     --pty-link PATH    UART1 の PTY を作り、PATH に symlink する
